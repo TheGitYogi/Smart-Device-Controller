@@ -281,7 +281,8 @@ button:not(:disabled):active,
 
 /* Custom cursor */
 .fan-cursor {
-  cursor: url("/fan-cursor.png"), auto;
+  cursor: pointer;
+  transition: transform 0.2s ease;
 }
 
 /* Speed pulse glow */

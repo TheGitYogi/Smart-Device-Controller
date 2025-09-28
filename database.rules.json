@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "fan": {
+      "status": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "esp8266": {
+      "data": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+} 

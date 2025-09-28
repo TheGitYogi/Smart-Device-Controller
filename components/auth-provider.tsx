@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
-import { initializeApp } from "firebase/app"
+import { initializeApp, type FirebaseApp } from "firebase/app"
 import {
   getAuth,
   onAuthStateChanged,
@@ -12,28 +12,10 @@ import {
   signInWithPopup,
   type User,
   updateProfile,
+  type Auth,
 } from "firebase/auth"
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore"
-
-// Firebase configuration - in a real app, these would be environment variables
-const firebaseConfig = {
-  apiKey: "AIzaSyDummyKeyForDemo123456789",
-  authDomain: "fanc-demo.firebaseapp.com",
-  projectId: "fanc-demo",
-  storageBucket: "fanc-demo.appspot.com",
-  messagingSenderId: "123456789012",
-  appId: "1:123456789012:web:abcdef1234567890",
-}
-
-// Initialize Firebase (with error handling)
-let app, auth, db
-try {
-  app = initializeApp(firebaseConfig)
-  auth = getAuth(app)
-  db = getFirestore(app)
-} catch (error) {
-  console.error("Firebase initialization error:", error)
-}
+import { getDatabase, type Database, ref, set } from "firebase/database"
+import { firebaseConfig } from "@/lib/firebase"
 
 // User settings interface
 export interface UserSettings {
@@ -94,7 +76,7 @@ export const defaultSettings: UserSettings = {
 type AuthContextType = {
   user: User | null
   loading: boolean
-  error: string | null
+  error: Error | null
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string, displayName: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
@@ -104,41 +86,57 @@ type AuthContextType = {
 }
 
 // Create context
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  error: null,
+  signIn: async () => {},
+  signUp: async () => {},
+  signInWithGoogle: async () => {},
+  logout: async () => {},
+  userSettings: defaultSettings,
+  updateUserSettings: async () => {},
+})
+
+// Initialize Firebase (with error handling)
+let app: FirebaseApp | undefined
+let auth: Auth | undefined
+let db: Database | undefined
+
+try {
+  app = initializeApp(firebaseConfig)
+  auth = getAuth(app)
+  db = getDatabase(app)
+} catch (error) {
+  console.error("Firebase initialization error:", error)
+}
 
 // Auth provider component
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<Error | null>(null)
   const [userSettings, setUserSettings] = useState<UserSettings>(defaultSettings)
 
   // Listen for auth state changes
   useEffect(() => {
-    if (!auth) return
-
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user)
-
-      if (user) {
-        // Load user settings from Firestore
-        try {
-          const userDoc = await getDoc(doc(db, "users", user.uid))
-          if (userDoc.exists()) {
-            setUserSettings(userDoc.data() as UserSettings)
-          } else {
-            // Create default settings for new user
-            await setDoc(doc(db, "users", user.uid), defaultSettings)
-          }
-        } catch (err) {
-          console.error("Error loading user settings:", err)
-          // Fall back to default settings if Firestore fails
-          setUserSettings(defaultSettings)
-        }
-      }
-
+    if (!auth) {
+      setError(new Error("Firebase Auth not initialized"))
       setLoading(false)
-    })
+      return
+    }
+
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (user) => {
+        setUser(user)
+        setLoading(false)
+      },
+      (error) => {
+        setError(error)
+        setLoading(false)
+      }
+    )
 
     return () => unsubscribe()
   }, [])
@@ -152,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!auth) throw new Error("Auth not initialized")
       await signInWithEmailAndPassword(auth, email, password)
     } catch (err: any) {
-      setError(err.message || "Failed to sign in")
+      setError(err)
       throw err
     } finally {
       setLoading(false)
@@ -172,9 +170,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await updateProfile(result.user, { displayName })
 
       // Create user document with default settings
-      await setDoc(doc(db, "users", result.user.uid), defaultSettings)
+      await set(ref(db, `users/${result.user.uid}/settings`), defaultSettings)
     } catch (err: any) {
-      setError(err.message || "Failed to sign up")
+      setError(err)
       throw err
     } finally {
       setLoading(false)
@@ -197,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await setDoc(doc(db, "users", result.user.uid), defaultSettings)
       }
     } catch (err: any) {
-      setError(err.message || "Failed to sign in with Google")
+      setError(err)
       throw err
     } finally {
       setLoading(false)
@@ -213,7 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!auth) throw new Error("Auth not initialized")
       await signOut(auth)
     } catch (err: any) {
-      setError(err.message || "Failed to sign out")
+      setError(err)
       throw err
     } finally {
       setLoading(false)
@@ -228,8 +226,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const newSettings = { ...userSettings, ...settings }
       setUserSettings(newSettings)
 
-      // Update Firestore
-      await setDoc(doc(db, "users", user.uid), newSettings, { merge: true })
+      // Update Realtime Database
+      await set(ref(db, `users/${user.uid}/settings`), newSettings)
     } catch (err) {
       console.error("Error updating user settings:", err)
       throw err
@@ -257,9 +255,5 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 // Custom hook to use auth context
 export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
-  return context
+  return useContext(AuthContext)
 }

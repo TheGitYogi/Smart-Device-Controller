@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 
 // Available languages
 export const languages = {
@@ -170,15 +170,33 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState("en")
   const [settings, setSettings] = useState(defaultSettings)
 
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    const savedSettings = localStorage.getItem("fanC-settings")
+    if (savedSettings) {
+      try {
+        const parsedSettings = JSON.parse(savedSettings)
+        setSettings(parsedSettings)
+        setLanguageState(parsedSettings.language)
+      } catch (error) {
+        console.error("Error loading settings:", error)
+      }
+    }
+  }, [])
+
   // Set language and update settings
   const setLanguage = (lang: string) => {
     setLanguageState(lang)
-    setSettings((prev) => ({ ...prev, language: lang }))
+    const newSettings = { ...settings, language: lang }
+    setSettings(newSettings)
+    localStorage.setItem("fanC-settings", JSON.stringify(newSettings))
   }
 
   // Update settings
   const updateSettings = (newSettings: Partial<typeof defaultSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }))
+    const updatedSettings = { ...settings, ...newSettings }
+    setSettings(updatedSettings)
+    localStorage.setItem("fanC-settings", JSON.stringify(updatedSettings))
     if (newSettings.language) {
       setLanguageState(newSettings.language)
     }
